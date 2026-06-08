@@ -103,6 +103,7 @@ def get_student_metrics(student_id):
         FROM grades g
         JOIN courses c ON g.course_code = c.course_code
         WHERE g.student_id = {student_id}
+        ORDER BY c.semester ASC
     '''
     df = pd.read_sql_query(query, conn)
     conn.close()
@@ -182,7 +183,7 @@ if persona == "1. Corporate Recruiter Portal":
         c3.metric("Recruiter Verdict", "Highly Recommended" if pillar_averages.get(target_pillar, 0.0) >= 3.4 else "Standard Profile")
 
 # ------------------------------------------
-# PERSONA 2: STUDENT & PARENT PORTAL
+# PERSONA 2: STUDENT & PARENT PORTAL (WITH TRANSCRIPT)
 # ------------------------------------------
 elif persona == "2. Student & Parent Dashboard":
     st.title("🎓 Student Academic Growth & Career Compass")
@@ -198,16 +199,62 @@ elif persona == "2. Student & Parent Dashboard":
         pillar_analysis = metrics_df.groupby('pillar')['grade_point'].mean().reset_index()
         top_pillar = pillar_analysis.loc[pillar_analysis['grade_point'].idxmax()]['pillar']
         
-        st.subheader("Your Technical Strength Profile")
-        st.bar_chart(pillar_analysis.set_index('pillar'), y="grade_point", color="#2ca02c")
+        # Sub-tabs to cleanly separate analytics from raw official documents
+        tab1, tab2 = st.tabs(["📊 Competency Analytics & Career Mapping", "📜 Official Academic Transcript"])
         
-        st.subheader("🚀 Career Pathway Recommendations")
-        if top_pillar == "Mechanics & Design":
-            st.success("**Primary Pathway: Structural & Machine Systems Design.** Excellent fit for CAD/CAE Design, Automotive Chassis development, and Structural Analysis roles.")
-        elif top_pillar == "Thermo-Fluids":
-            st.success("**Primary Pathway: Energy Systems & Thermal Engineering.** Recommended industries include Renewable Energy Plant Operations, HVAC System Architecture, and Computational Fluid Dynamics (CFD) optimization.")
-        elif top_pillar == "Manufacturing & Materials":
-            st.success("**Primary Pathway: Advanced Manufacturing & Industry 4.0.** Highly suited for Automation/Robotics track, Plant Operations Management, or Supply Chain Quality Engineering.")
+        with tab1:
+            st.subheader("Your Technical Strength Profile")
+            st.bar_chart(pillar_analysis.set_index('pillar'), y="grade_point", color="#2ca02c")
+            
+            st.subheader("🚀 Career Pathway Recommendations")
+            if top_pillar == "Mechanics & Design":
+                st.success("**Primary Pathway: Structural & Machine Systems Design.** Excellent fit for CAD/CAE Design, Automotive Chassis development, and Structural Analysis roles.")
+            elif top_pillar == "Thermo-Fluids":
+                st.success("**Primary Pathway: Energy Systems & Thermal Engineering.** Recommended industries include Renewable Energy Plant Operations, HVAC System Architecture, and Computational Fluid Dynamics (CFD) optimization.")
+            elif top_pillar == "Manufacturing & Materials":
+                st.success("**Primary Pathway: Advanced Manufacturing & Industry 4.0.** Highly suited for Automation/Robotics track, Plant Operations Management, or Supply Chain Quality Engineering.")
+        
+        with tab2:
+            st.markdown("""
+                <style>
+                .transcript-header { text-align: center; background-color: #f4f4f4; padding: 10px; border-radius: 5px; margin-bottom: 20px;}
+                </style>
+            """, unsafe_allow_html=True)
+            
+            st.markdown(f"""
+                <div class="transcript-header">
+                    <h2>OFFICIAL ACADEMIC TRANSCRIPT</h2>
+                    <p><b>Student Name:</b> {selected_student} &nbsp;&nbsp;|&nbsp;&nbsp; <b>Major:</b> Mechanical Engineering &nbsp;&nbsp;|&nbsp;&nbsp; <b>Status:</b> Graduated (8 Semesters)</p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Loop through all 8 semesters to build chronological blocks
+            cumulative_points = 0.0
+            total_courses_tracked = 0
+            
+            for sem in range(1, 9):
+                sem_df = metrics_df[metrics_df['semester'] == sem]
+                
+                if not sem_df.empty:
+                    st.markdown(f"#### 📅 Semester {sem}")
+                    
+                    # Clean the view for the transcript layout
+                    display_sem_df = sem_df[['course_code', 'course_name', 'pillar', 'grade_point']].copy()
+                    display_sem_df.columns = ['Course Code', 'Course Title', 'Academic Domain', 'Grade Point']
+                    
+                    st.dataframe(display_sem_df, hide_index=True, use_container_width=True)
+                    
+                    # Calculate stats dynamically
+                    sem_gpa = sem_df['grade_point'].mean()
+                    cumulative_points += sem_df['grade_point'].sum()
+                    total_courses_tracked += len(sem_df)
+                    running_cgpa = cumulative_points / total_courses_tracked
+                    
+                    # Display summary row for each semester block
+                    col_sgpa, col_cgpa = st.columns(2)
+                    col_sgpa.markdown(f"**Semester {sem} GPA:** `{sem_gpa:.2f}`")
+                    col_cgpa.markdown(f"**Running Cumulative GPA (CGPA):** `{running_cgpa:.2f}`")
+                    st.markdown("---")
 
 # ------------------------------------------
 # PERSONA 3: UNIVERSITY ADMINISTRATOR
@@ -258,7 +305,6 @@ elif persona == "4. Government Scholarship Agency":
             ]
         )
         
-        # Map the national priority back to the technical pillar
         pillar_map = {
             "Renewable Energy & Climate Adaptation (Requires Thermo-Fluids)": "Thermo-Fluids",
             "Advanced Infrastructure & Micro-Grid Structures (Requires Mechanics & Design)": "Mechanics & Design",
@@ -268,7 +314,6 @@ elif persona == "4. Government Scholarship Agency":
         
         st.write(f"### Screened Applicants Ranked by Funding Viability for **{selected_pillar}**")
         
-        # Calculate a custom Funding Score: 70% Specific Pillar Mastery + 30% Global Performance
         conn = sqlite3.connect(db_name)
         funding_query = f'''
             SELECT 
@@ -284,7 +329,6 @@ elif persona == "4. Government Scholarship Agency":
         agency_df = pd.read_sql_query(funding_query, conn)
         conn.close()
         
-        # Calculate a mock viability metric for presentation flair
         if not agency_df.empty:
             agency_df['Funding Viability Index'] = agency_df.apply(
                 lambda row: f"{int((row['Target Pillar GPA'] * 0.7 + row['Overall GPA'] * 0.3) / 4.0 * 100)}%", axis=1
